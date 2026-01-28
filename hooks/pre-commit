@@ -92,7 +92,8 @@ sync_renamed_symlinks
 large_files=()
 total_files=0
 
-for file in $(git diff --cached --name-only --diff-filter=ACM); do
+# -z 옵션으로 NULL 구분자 사용하여 공백이 있는 파일명 처리
+while IFS= read -r -d '' file; do
     if [ -f "$file" ] && [ ! -L "$file" ]; then
         total_files=$((total_files + 1))
         file_size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
@@ -102,7 +103,7 @@ for file in $(git diff --cached --name-only --diff-filter=ACM); do
             large_files+=("$file:${file_size_mb}")
         fi
     fi
-done
+done < <(git diff --cached --name-only -z --diff-filter=ACMT)
 
 # 큰 파일이 발견되면 자동으로 이동
 if [ ${#large_files[@]} -gt 0 ]; then
@@ -171,11 +172,11 @@ fi
 
 # 나머지 파일 크기 확인
 remaining_files=0
-for file in $(git diff --cached --name-only --diff-filter=ACM); do
+while IFS= read -r -d '' file; do
     if [ -f "$file" ]; then
         remaining_files=$((remaining_files + 1))
     fi
-done
+done < <(git diff --cached --name-only -z --diff-filter=ACMT)
 
 echo "✓ 커밋 준비 완료 ($remaining_files files)"
 exit 0
