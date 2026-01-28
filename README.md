@@ -79,6 +79,26 @@ git commit -m "파일 추가"
 ./git-bigfile-hooks/scripts/create_symlinks.sh
 ```
 
+### 롤백 (원래 위치로 복원)
+
+BigFile/에 있는 파일들을 원래 위치로 되돌립니다:
+
+```bash
+# 미리보기 (실제 복원 없음)
+./git-bigfile-hooks/scripts/rollback.sh --dry-run
+
+# 대화형으로 복원 (확인 후 실행)
+./git-bigfile-hooks/scripts/rollback.sh
+
+# 확인 없이 강제 복원
+./git-bigfile-hooks/scripts/rollback.sh --force
+```
+
+롤백 동작:
+1. 원래 위치의 symlink 제거
+2. BigFile/의 파일을 원래 위치로 이동
+3. 빈 BigFile/ 하위 디렉토리 정리
+
 ## 설정 커스터마이징
 
 기본 설정을 변경하려면 `bigfile-config.sh` 파일을 프로젝트 루트에 생성합니다:
@@ -118,7 +138,8 @@ CREATE_SYMLINKS=true
 │   ├── scripts/
 │   │   ├── install.sh     # 설치 스크립트
 │   │   ├── move_large_files.sh
-│   │   └── create_symlinks.sh
+│   │   ├── create_symlinks.sh
+│   │   └── rollback.sh    # 원래 위치로 복원
 │   ├── config.sh          # 기본 설정
 │   └── README.md
 ├── BigFile/               # 큰 파일 저장소 (.gitignore)
