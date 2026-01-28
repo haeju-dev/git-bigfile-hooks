@@ -1,0 +1,117 @@
+#!/bin/bash
+
+# git-bigfile-hooks post-merge hook
+# git pull/merge 후 BigFile 경로 자동 동기화
+
+# 프로젝트 루트 찾기
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+
+# 설정 파일 로드
+if [ -f "$PROJECT_ROOT/bigfile-config.sh" ]; then
+    source "$PROJECT_ROOT/bigfile-config.sh"
+elif [ -f "$PROJECT_ROOT/git-bigfile-hooks/config.sh" ]; then
+    source "$PROJECT_ROOT/git-bigfile-hooks/config.sh"
+else
+    BIGFILE_DIR="BigFile"
+fi
+
+BIGFILE_PATH="$PROJECT_ROOT/$BIGFILE_DIR"
+
+cd "$PROJECT_ROOT" || exit 0
+
+# BigFile 디렉토리가 없으면 종료
+if [ ! -d "$BIGFILE_PATH" ]; then
+    exit 0
+fi
+
+echo ""
+echo "🔄 BigFile 동기화 확인 중..."
+
+# ============================================
+# 1단계: 깨진 symlink 찾기
+# ============================================
+broken_count=0
+fixed_count=0
+
+while IFS= read -r -d '' symlink; do
+    # symlink가 BigFile을 가리키는지 확인
+    target=$(readlink "$symlink" 2>/dev/null)
+    if [[ "$target" == *"$BIGFILE_DIR"* ]] || [[ "$target" == *"BigFile"* ]]; then
+        if [ ! -e "$symlink" ]; then
+            broken_count=$((broken_count + 1))
+
+            # symlink의 상대 경로
+            rel_symlink="${symlink#$PROJECT_ROOT/}"
+            filename=$(basename "$symlink")
+            link_dir=$(dirname "$symlink")
+
+            echo "  ⚠️  깨진 symlink 발견: $rel_symlink"
+
+            # BigFile에서 같은 이름의 파일 찾기
+            found_file=$(find "$BIGFILE_PATH" -name "$filename" -type f 2>/dev/null | head -1)
+
+            if [ -n "$found_file" ]; then
+                # 새 BigFile 경로 계산
+                new_bigfile_path="$BIGFILE_PATH/$rel_symlink"
+                new_bigfile_dir=$(dirname "$new_bigfile_path")
+
+                mkdir -p "$new_bigfile_dir"
+
+                if mv "$found_file" "$new_bigfile_path" 2>/dev/null; then
+                    # symlink 재생성
+                    rm "$symlink"
+                    rel_to_bigfile=$(python3 -c "import os.path; print(os.path.relpath('$new_bigfile_path', '$link_dir'))")
+                    ln -s "$rel_to_bigfile" "$symlink"
+
+                    echo "    ✓ 복구됨: $rel_symlink"
+                    fixed_count=$((fixed_count + 1))
+
+                    # 빈 디렉토리 정리
+                    old_dir=$(dirname "$found_file")
+                    find "$old_dir" -type d -empty -delete 2>/dev/null
+                fi
+            fi
+        fi
+    fi
+done < <(find "$PROJECT_ROOT" -type l -print0 2>/dev/null | grep -zv "^$BIGFILE_PATH" | grep -zv "/.git/")
+
+# ============================================
+# 2단계: 새로운 symlink에 대한 BigFile 확인
+# ============================================
+# merge로 들어온 새 symlink 중 BigFile이 없는 경우 감지
+new_broken=0
+
+while IFS= read -r -d '' symlink; do
+    target=$(readlink "$symlink" 2>/dev/null)
+    if [[ "$target" == *"$BIGFILE_DIR"* ]] || [[ "$target" == *"BigFile"* ]]; then
+        if [ ! -e "$symlink" ]; then
+            rel_symlink="${symlink#$PROJECT_ROOT/}"
+            if [ $new_broken -eq 0 ]; then
+                echo ""
+                echo "  ⚠️  원격에서 가져온 symlink 중 BigFile이 없는 항목:"
+            fi
+            echo "    - $rel_symlink"
+            new_broken=$((new_broken + 1))
+        fi
+    fi
+done < <(find "$PROJECT_ROOT" -type l -print0 2>/dev/null | grep -zv "^$BIGFILE_PATH" | grep -zv "/.git/")
+
+# ============================================
+# 결과 출력
+# ============================================
+if [ $broken_count -eq 0 ] && [ $new_broken -eq 0 ]; then
+    echo "  ✓ 모든 BigFile symlink가 정상입니다."
+else
+    if [ $fixed_count -gt 0 ]; then
+        echo ""
+        echo "✅ ${fixed_count}개의 symlink가 복구되었습니다."
+    fi
+    if [ $new_broken -gt 0 ]; then
+        echo ""
+        echo "⚠️  ${new_broken}개의 symlink에 해당하는 BigFile이 없습니다."
+        echo "   해당 파일들은 다른 기기에서 직접 복사해야 합니다."
+    fi
+fi
+
+echo ""
+exit 0

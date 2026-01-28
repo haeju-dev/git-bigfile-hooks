@@ -137,6 +137,20 @@ git commit -m "파일 이동"
 2. 이동된 symlink의 BigFile 경로 동기화
 3. 고아 파일(symlink 없이 BigFile에만 존재) 감지
 
+### git pull/merge 후 자동 동기화
+
+`post-merge` hook이 설치되어 있어 `git pull` 또는 `git merge` 후 자동으로 BigFile 경로를 확인하고 동기화합니다:
+
+```bash
+git pull origin main
+
+# 자동 출력:
+# 🔄 BigFile 동기화 확인 중...
+#   ✓ 모든 BigFile symlink가 정상입니다.
+```
+
+원격에서 가져온 symlink 중 로컬에 BigFile이 없는 경우 경고를 표시합니다.
+
 ## 설정 커스터마이징
 
 기본 설정을 변경하려면 `bigfile-config.sh` 파일을 프로젝트 루트에 생성합니다:
@@ -172,7 +186,8 @@ CREATE_SYMLINKS=true
 프로젝트/
 ├── git-bigfile-hooks/     # submodule
 │   ├── hooks/
-│   │   └── pre-commit     # Git hook
+│   │   ├── pre-commit     # 커밋 전 hook (큰 파일 이동, 경로 동기화)
+│   │   └── post-merge     # merge/pull 후 hook (BigFile 동기화 확인)
 │   ├── scripts/
 │   │   ├── install.sh     # 설치 스크립트
 │   │   ├── move_large_files.sh
