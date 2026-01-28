@@ -6,6 +6,7 @@ Git 프로젝트에서 큰 파일(기본 10MB 이상)을 자동으로 관리하�
 
 - 커밋 시 큰 파일 자동 감지 및 `BigFile/` 디렉토리로 이동
 - 이동된 파일 위치에 symlink 자동 생성
+- 파일 이동/이름변경 시 BigFile 경로 자동 동기화
 - Git에서 symlink만 추적하여 저장소 용량 절약
 - 다른 프로젝트에서 submodule로 쉽게 재사용
 
@@ -99,6 +100,43 @@ BigFile/에 있는 파일들을 원래 위치로 되돌립니다:
 2. BigFile/의 파일을 원래 위치로 이동
 3. 빈 BigFile/ 하위 디렉토리 정리
 
+### 경로 동기화 (자동)
+
+파일이나 디렉토리를 이동/이름변경하면 BigFile 경로도 자동으로 동기화됩니다:
+
+```bash
+# 파일 이동 예시
+mv videos/large.mp4 media/large.mp4
+git add -A
+git commit -m "파일 이동"
+
+# 출력:
+# 🔄 Symlink 이동 감지: videos/large.mp4 → media/large.mp4
+#   ✓ BigFile 경로 동기화: BigFile/videos/large.mp4 → BigFile/media/large.mp4
+#   ✓ Symlink 재생성됨
+# ✅ 1개의 BigFile 경로가 동기화되었습니다.
+```
+
+### 수동 동기화
+
+깨진 symlink나 경로 불일치를 수동으로 확인하고 수정할 수 있습니다:
+
+```bash
+# 미리보기 (실제 수정 없음)
+./git-bigfile-hooks/scripts/sync.sh --dry-run
+
+# 동기화 실행
+./git-bigfile-hooks/scripts/sync.sh
+
+# 확인 없이 강제 실행
+./git-bigfile-hooks/scripts/sync.sh --force
+```
+
+동기화 동작:
+1. 깨진 symlink 감지 및 복구
+2. 이동된 symlink의 BigFile 경로 동기화
+3. 고아 파일(symlink 없이 BigFile에만 존재) 감지
+
 ## 설정 커스터마이징
 
 기본 설정을 변경하려면 `bigfile-config.sh` 파일을 프로젝트 루트에 생성합니다:
@@ -139,7 +177,8 @@ CREATE_SYMLINKS=true
 │   │   ├── install.sh     # 설치 스크립트
 │   │   ├── move_large_files.sh
 │   │   ├── create_symlinks.sh
-│   │   └── rollback.sh    # 원래 위치로 복원
+│   │   ├── rollback.sh    # 원래 위치로 복원
+│   │   └── sync.sh        # 경로 동기화
 │   ├── config.sh          # 기본 설정
 │   └── README.md
 ├── BigFile/               # 큰 파일 저장소 (.gitignore)
