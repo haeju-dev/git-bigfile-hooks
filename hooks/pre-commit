@@ -1,0 +1,117 @@
+#!/bin/bash
+
+# git-bigfile-hooks pre-commit hook
+# 10MB 이상 파일 커밋 시 자동으로 BigFile/로 이동하고 symlink 생성
+
+# 프로젝트 루트 찾기
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+
+# 설정 파일 로드 (프로젝트 루트 또는 submodule 내 기본값)
+if [ -f "$PROJECT_ROOT/bigfile-config.sh" ]; then
+    source "$PROJECT_ROOT/bigfile-config.sh"
+elif [ -f "$PROJECT_ROOT/git-bigfile-hooks/config.sh" ]; then
+    source "$PROJECT_ROOT/git-bigfile-hooks/config.sh"
+else
+    # 기본값
+    MAX_SIZE_MB=10
+    BIGFILE_DIR="BigFile"
+    CREATE_SYMLINKS=true
+fi
+
+MAX_SIZE_BYTES=$((MAX_SIZE_MB * 1024 * 1024))
+
+echo "Checking file sizes before commit..."
+
+# 스테이징된 파일 중 크기가 큰 파일 찾기
+large_files=()
+total_files=0
+
+cd "$PROJECT_ROOT" || exit 1
+
+for file in $(git diff --cached --name-only --diff-filter=ACM); do
+    if [ -f "$file" ] && [ ! -L "$file" ]; then
+        total_files=$((total_files + 1))
+        file_size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
+
+        if [ $? -eq 0 ] && [ "$file_size" -gt "$MAX_SIZE_BYTES" ]; then
+            file_size_mb=$(echo "scale=2; $file_size / 1048576" | bc)
+            large_files+=("$file:${file_size_mb}")
+        fi
+    fi
+done
+
+# 큰 파일이 발견되면 자동으로 이동
+if [ ${#large_files[@]} -gt 0 ]; then
+    echo ""
+    echo "⚠️  발견: ${#large_files[@]}개의 큰 파일(${MAX_SIZE_MB}MB 이상)이 커밋에 포함되어 있습니다."
+    echo ""
+
+    for item in "${large_files[@]}"; do
+        file="${item%%:*}"
+        size="${item##*:}"
+        echo "  - $file (${size}MB)"
+    done
+
+    echo ""
+    echo "🔄 자동으로 $BIGFILE_DIR/ 디렉토리로 이동합니다..."
+    echo ""
+
+    # 큰 파일들을 BigFile/로 이동
+    for item in "${large_files[@]}"; do
+        file="${item%%:*}"
+
+        if [ -f "$file" ]; then
+            # 목적지 경로 생성
+            dest_file="$BIGFILE_DIR/$file"
+            dest_dir=$(dirname "$dest_file")
+
+            # 목적지 디렉토리 생성
+            mkdir -p "$dest_dir"
+
+            # 파일 이동
+            if mv "$file" "$dest_file"; then
+                echo "  ✓ 이동 완료: $file → $dest_file"
+
+                # git에서 제거 (staged 상태 해제)
+                git rm --cached "$file" 2>/dev/null
+
+                # symlink 생성 (설정에 따라)
+                if [ "$CREATE_SYMLINKS" = true ]; then
+                    original_dir=$(dirname "$file")
+                    mkdir -p "$original_dir"
+
+                    # 상대 경로로 symlink 생성
+                    rel_to_bigfile=$(python3 -c "import os.path; print(os.path.relpath('$dest_file', '$original_dir'))")
+
+                    if ln -s "$rel_to_bigfile" "$file"; then
+                        echo "  🔗 Symlink 생성: $file → $rel_to_bigfile"
+
+                        # symlink를 staging에 추가
+                        git add "$file"
+                    fi
+                fi
+            else
+                echo "  ✗ 이동 실패: $file"
+            fi
+        fi
+    done
+
+    echo ""
+    echo "✅ 큰 파일이 $BIGFILE_DIR/ 디렉토리로 이동되었습니다."
+    echo "   ($BIGFILE_DIR/* 은 .gitignore에 등록되어 있어 Git에서 추적되지 않습니다)"
+    if [ "$CREATE_SYMLINKS" = true ]; then
+        echo "   (symlink는 Git에서 추적됩니다)"
+    fi
+    echo ""
+fi
+
+# 나머지 파일 크기 확인
+remaining_files=0
+for file in $(git diff --cached --name-only --diff-filter=ACM); do
+    if [ -f "$file" ]; then
+        remaining_files=$((remaining_files + 1))
+    fi
+done
+
+echo "✓ 커밋 준비 완료 ($remaining_files files)"
+exit 0
